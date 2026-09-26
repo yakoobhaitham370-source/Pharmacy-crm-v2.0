@@ -414,10 +414,20 @@ export default function App() {
         const updatedMeds = p.medications.map((m, idx) => {
           if (medIndices.includes(idx)) {
             refilledDrugNames.push(m.name);
+            const history = Array.isArray(m.refillHistory) ? [...m.refillHistory] : [];
+            // Preserve previous dispense date before updating lastDispenseDate to today
+            if (m.lastDispenseDate && !history.some(r => (typeof r === 'string' ? r : r.date) === m.lastDispenseDate)) {
+              history.push({
+                id: `rf-${Date.now()}-${idx}`,
+                date: m.lastDispenseDate,
+                daysSupply: m.daysSupply || 30,
+              });
+            }
             return {
               ...m,
               lastDispenseDate: today,
               daysSupply: daysSupply,
+              refillHistory: history,
             };
           }
           return m;

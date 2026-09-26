@@ -18,7 +18,8 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import QRCode from 'qrcode';
-import { Patient, Medication, VitalsEntry, LabScan, FollowUpEntry } from '../../types/pharmacy';
+import { Patient, Medication, VitalsEntry, LabScan, FollowUpEntry, RefillRecord } from '../../types/pharmacy';
+import { MedicationRefillTimeline } from '../medications/MedicationRefillTimeline';
 import {
   evaluateClinicalSafetyRadar,
   getEvidenceBasedCompanion,
@@ -201,6 +202,19 @@ export const PatientDossierModal: React.FC<PatientDossierModalProps> = ({
     });
   };
 
+  const handleUpdateMedRefillHistory = (medIndex: number, newHistory: RefillRecord[]) => {
+    setFormData(prev => {
+      const copy = [...prev.medications];
+      if (copy[medIndex]) {
+        copy[medIndex] = {
+          ...copy[medIndex],
+          refillHistory: newHistory,
+        };
+      }
+      return { ...prev, medications: copy };
+    });
+  };
+
   const handleAddVitals = () => {
     if (!newSys && !newSugar) {
       onShowToast(lang === 'ar' ? 'يرجى إدخال الضغط أو السكر على الأقل' : 'Enter BP or Glucose', 'error');
@@ -376,7 +390,7 @@ export const PatientDossierModal: React.FC<PatientDossierModalProps> = ({
         <div className="bg-[#191919] light:bg-neutral-200 border-b border-[#383838] px-4 flex items-center gap-1 overflow-x-auto text-xs font-semibold">
           {[
             { id: 'demographics', labelAr: '1. البيانات والعائلة', labelEn: '1. Demographics' },
-            { id: 'regimen', labelAr: '2. الأدوية والسلامة', labelEn: '2. Regimen & Safety' },
+            { id: 'regimen', labelAr: '2. الأدوية ومخطط الصرف ⏱️', labelEn: '2. Regimen & Refill Timelines ⏱️' },
             { id: 'analytics', labelAr: '3. مخطط الالتزام والمؤشرات 📈', labelEn: '3. Adherence & Vitals Chart 📈' },
             { id: 'vitals', labelAr: '4. سجل الضغط والسكر', labelEn: '4. Vitals & Labs' },
             { id: 'scans', labelAr: '5. التحاليل والـ OCR', labelEn: '5. Scans & AI OCR' },
@@ -628,54 +642,76 @@ export const PatientDossierModal: React.FC<PatientDossierModalProps> = ({
               </div>
 
               {/* Meds items */}
-              <div className="space-y-2">
+              <div className="space-y-4">
+                {formData.medications.length === 0 && (
+                  <div className="p-8 text-center bg-[#141414] light:bg-neutral-50 rounded-xl border border-dashed border-[#333] light:border-neutral-300 space-y-2">
+                    <p className="text-neutral-400 text-xs">
+                      {lang === 'ar'
+                        ? 'لا توجد أدوية مسجلة بعد. اضغط على "إضافة دواء" لإدراج الأدوية ومتابعة خط زمني دقيق لمواعيد الصرف والالتزام الدوائي.'
+                        : 'No medications recorded yet. Click "Add Medication" to track regimen and adherence timelines.'}
+                    </p>
+                  </div>
+                )}
+
                 {formData.medications.map((m, idx) => (
                   <div
                     key={idx}
-                    className="p-3 rounded-xl bg-[#141414] light:bg-neutral-50 border border-[#2e2e2e] light:border-neutral-200 grid grid-cols-1 sm:grid-cols-12 gap-2 items-center"
+                    className="p-3.5 rounded-xl bg-[#141414] light:bg-neutral-50 border border-[#2e2e2e] light:border-neutral-200 space-y-2.5 transition-all shadow-sm"
                   >
-                    <div className="sm:col-span-5 space-y-1">
-                      <label className="text-[10px] text-neutral-400">{lang === 'ar' ? 'اسم الدواء (العلامة التجارية)' : 'Brand Name'}</label>
-                      <input
-                        type="text"
-                        value={m.name}
-                        onChange={e => handleMedChange(idx, 'name', e.target.value)}
-                        placeholder="Glucophage, Concor, Lipitor..."
-                        className="w-full bg-[#1f1f1f] light:bg-white border border-[#383838] p-2 rounded-lg text-white light:text-neutral-900 font-bold text-xs outline-none focus:border-blue-500"
-                      />
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
+                      <div className="sm:col-span-5 space-y-1">
+                        <label className="text-[10px] text-neutral-400 font-semibold">{lang === 'ar' ? 'اسم الدواء (العلامة التجارية)' : 'Brand Name'}</label>
+                        <input
+                          type="text"
+                          value={m.name}
+                          onChange={e => handleMedChange(idx, 'name', e.target.value)}
+                          placeholder="Glucophage, Concor, Lipitor..."
+                          className="w-full bg-[#1f1f1f] light:bg-white border border-[#383838] p-2 rounded-lg text-white light:text-neutral-900 font-bold text-xs outline-none focus:border-blue-500"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] text-neutral-400 font-semibold">{lang === 'ar' ? 'تاريخ آخر صرف' : 'Last Dispense'}</label>
+                        <input
+                          type="date"
+                          value={m.lastDispenseDate}
+                          onChange={e => handleMedChange(idx, 'lastDispenseDate', e.target.value)}
+                          className="w-full bg-[#1f1f1f] light:bg-white border border-[#383838] p-2 rounded-lg text-white light:text-neutral-900 text-xs font-mono outline-none focus:border-blue-500"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] text-neutral-400 font-semibold">{lang === 'ar' ? 'الكمية (أيام / حبات)' : 'Supply (Days/Tabs)'}</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={365}
+                          value={m.daysSupply}
+                          onChange={e => handleMedChange(idx, 'daysSupply', parseInt(e.target.value, 10) || 30)}
+                          className="w-full bg-[#1f1f1f] light:bg-white border border-[#383838] p-2 rounded-lg text-white light:text-neutral-900 text-xs font-bold text-center outline-none focus:border-blue-500"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-1 flex justify-end pt-4">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMedication(idx)}
+                          className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-400 hover:bg-neutral-800 transition-colors cursor-pointer"
+                          title={lang === 'ar' ? 'حذف الدواء' : 'Delete Medication'}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="sm:col-span-3 space-y-1">
-                      <label className="text-[10px] text-neutral-400">{lang === 'ar' ? 'تاريخ آخر صرف' : 'Last Dispense'}</label>
-                      <input
-                        type="date"
-                        value={m.lastDispenseDate}
-                        onChange={e => handleMedChange(idx, 'lastDispenseDate', e.target.value)}
-                        className="w-full bg-[#1f1f1f] light:bg-white border border-[#383838] p-2 rounded-lg text-white light:text-neutral-900 text-xs font-mono outline-none focus:border-blue-500"
+                    {/* Visual Timeline of Previous Refill Dates & Adherence Analysis */}
+                    {m.name.trim() && (
+                      <MedicationRefillTimeline
+                        medication={m}
+                        lang={lang}
+                        onUpdateRefillHistory={newHistory => handleUpdateMedRefillHistory(idx, newHistory)}
                       />
-                    </div>
-
-                    <div className="sm:col-span-3 space-y-1">
-                      <label className="text-[10px] text-neutral-400">{lang === 'ar' ? 'الكمية (أيام / حبات)' : 'Supply (Days/Tabs)'}</label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={365}
-                        value={m.daysSupply}
-                        onChange={e => handleMedChange(idx, 'daysSupply', parseInt(e.target.value, 10) || 30)}
-                        className="w-full bg-[#1f1f1f] light:bg-white border border-[#383838] p-2 rounded-lg text-white light:text-neutral-900 text-xs font-bold text-center outline-none focus:border-blue-500"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-1 flex justify-end pt-4">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveMedication(idx)}
-                        className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-400 hover:bg-neutral-800 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    )}
                   </div>
                 ))}
               </div>

@@ -1,3 +1,10 @@
+export interface RefillRecord {
+  id?: string;
+  date: string;          // ISO Date YYYY-MM-DD
+  daysSupply: number;    // e.g. 30, 60, 90
+  note?: string;
+}
+
 export interface Medication {
   id?: string;
   name: string;
@@ -8,6 +15,7 @@ export interface Medication {
   mealRelation?: 'before_meal' | 'with_meal' | 'after_meal' | 'empty_stomach' | 'anytime';
   prescriber?: string;
   genericClass?: string;
+  refillHistory?: (RefillRecord | string)[];
 }
 
 export interface VitalsEntry {
