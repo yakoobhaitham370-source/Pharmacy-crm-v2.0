@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Tajawal', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  [dir="ltr"] body {
+    font-family: 'Plus Jakarta Sans', 'Tajawal', system-ui, -apple-system, sans-serif;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  #thermal-slip-print,
+  #thermal-slip-print * {
+    visibility: visible !important;
+  }
+  #thermal-slip-print {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 80mm !important;
+    margin: 0 !important;
+    padding: 10px !important;
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+}

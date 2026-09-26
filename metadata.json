@@ -1,0 +1,6 @@
+{
+  "name": "PharmPulse Enterprise | Clinical CRM & Refill Engine",
+  "description": "Enterprise Clinical Pharmacy CRM, automated refill synchronization engine, antibiotic stewardship, drug interaction safety radar, and household dispensing system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
