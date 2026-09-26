@@ -10,9 +10,11 @@ import {
   Download,
   Phone,
   LineChart,
+  X,
 } from 'lucide-react';
 import { Patient } from '../../types/pharmacy';
 import { calculatePDC } from '../../utils/pharmacyCalculations';
+import { useDebounce } from '../../utils/useDebounce';
 
 interface PatientsViewProps {
   patients: Patient[];
@@ -21,6 +23,11 @@ interface PatientsViewProps {
   onOpenHouseholdModal: (familyTag: string) => void;
   onArchivePatient: (patientId: string) => void;
   onShowToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  // Global search props
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
+  onClearSearch?: () => void;
+  debouncedSearchQuery?: string;
 }
 
 export const PatientsView: React.FC<PatientsViewProps> = ({
@@ -30,8 +37,34 @@ export const PatientsView: React.FC<PatientsViewProps> = ({
   onOpenHouseholdModal,
   onArchivePatient,
   onShowToast,
+  searchQuery,
+  onSearchChange,
+  onClearSearch,
+  debouncedSearchQuery: externalDebouncedQuery,
 }) => {
-  const [search, setSearch] = useState('');
+  const [localSearch, setLocalSearch] = useState('');
+  const debouncedLocal = useDebounce(localSearch, 250);
+
+  const effectiveSearch = searchQuery !== undefined ? searchQuery : localSearch;
+  const effectiveDebouncedSearch =
+    externalDebouncedQuery !== undefined ? externalDebouncedQuery : debouncedLocal;
+
+  const handleSearchInput = (val: string) => {
+    if (onSearchChange) {
+      onSearchChange(val);
+    } else {
+      setLocalSearch(val);
+    }
+  };
+
+  const handleClear = () => {
+    if (onClearSearch) {
+      onClearSearch();
+    } else {
+      setLocalSearch('');
+    }
+  };
+
   const [familyFilter, setFamilyFilter] = useState('ALL');
   const [adherenceFilter, setAdherenceFilter] = useState('ALL');
 
@@ -47,11 +80,19 @@ export const PatientsView: React.FC<PatientsViewProps> = ({
 
   const filteredPatients = useMemo(() => {
     return activePatients.filter(p => {
-      const q = search.toLowerCase().trim();
+      const q = effectiveDebouncedSearch.toLowerCase().trim();
+      const digitsOnly = q.replace(/\D/g, '');
+
+      const phoneRaw = p.phone || '';
+      const phoneDigits = phoneRaw.replace(/\D/g, '');
+      const matchPhone =
+        phoneRaw.toLowerCase().includes(q) ||
+        (digitsOnly.length >= 2 && phoneDigits.includes(digitsOnly));
+
       const matchSearch =
         !q ||
         p.name.toLowerCase().includes(q) ||
-        p.phone.includes(q) ||
+        matchPhone ||
         p.id.toLowerCase().includes(q) ||
         (p.familyTag && p.familyTag.toLowerCase().includes(q)) ||
         (p.medications || []).some(m => m.name.toLowerCase().includes(q));
@@ -69,7 +110,7 @@ export const PatientsView: React.FC<PatientsViewProps> = ({
 
       return matchSearch && matchFamily && matchAdherence;
     });
-  }, [activePatients, search, familyFilter, adherenceFilter]);
+  }, [activePatients, effectiveDebouncedSearch, familyFilter, adherenceFilter]);
 
   const handleExportCSV = () => {
     const headers = ['ID,Name,Phone,FamilyTag,Age,LoyaltyPoints,PDC,MedicationsCount'];
@@ -126,14 +167,24 @@ export const PatientsView: React.FC<PatientsViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
           {/* Search */}
           <div className="relative">
-            <Search className="w-4 h-4 text-neutral-400 absolute right-3 top-3" />
+            <Search className="w-4 h-4 text-neutral-400 absolute right-3 top-3 pointer-events-none" />
             <input
               type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
+              value={effectiveSearch}
+              onChange={e => handleSearchInput(e.target.value)}
               placeholder={lang === 'ar' ? 'بحث بالاسم، الهاتف، الدواء...' : 'Search name, phone, drug...'}
-              className="w-full bg-[#141414] light:bg-neutral-50 border border-[#383838] light:border-neutral-300 text-white light:text-neutral-900 text-xs rounded-lg px-8 py-2.5 outline-none focus:border-blue-500"
+              className="w-full bg-[#141414] light:bg-neutral-50 border border-[#383838] light:border-neutral-300 text-white light:text-neutral-900 text-xs rounded-lg px-8 py-2.5 outline-none focus:border-blue-500 pr-9"
             />
+            {effectiveSearch && (
+              <button
+                type="button"
+                onClick={handleClear}
+                className="absolute left-3 top-3 text-neutral-400 hover:text-white transition-colors"
+                title={lang === 'ar' ? 'مسح البحث' : 'Clear search'}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Family Filter */}
@@ -166,6 +217,28 @@ export const PatientsView: React.FC<PatientsViewProps> = ({
           </select>
         </div>
       </div>
+
+      {/* Active Search Filter Banner */}
+      {effectiveDebouncedSearch.trim() && (
+        <div className="bg-blue-950/40 light:bg-blue-50 border border-blue-800/60 light:border-blue-300 rounded-xl px-4 py-2.5 flex items-center justify-between gap-3 text-xs animate-in fade-in duration-150">
+          <div className="flex items-center gap-2 text-blue-300 light:text-blue-900 font-medium">
+            <Search className="w-4 h-4 text-blue-400 shrink-0" />
+            <span>
+              {lang === 'ar'
+                ? `تصفية نشطة للبحث عن: «${effectiveDebouncedSearch}» (${filteredPatients.length} مريض مطابق)`
+                : `Active filter for: "${effectiveDebouncedSearch}" (${filteredPatients.length} matching)`}
+            </span>
+          </div>
+          <button
+            onClick={handleClear}
+            className="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-900/60 light:bg-blue-200 hover:bg-blue-900 light:hover:bg-blue-300 text-blue-200 light:text-blue-900 border border-blue-700/50 light:border-blue-400 text-[11px] font-bold transition-colors cursor-pointer"
+          >
+            <X className="w-3 h-3" />
+            <span>{lang === 'ar' ? 'إلغاء التصفية' : 'Clear Filter'}</span>
+          </button>
+        </div>
+      )}
+
 
       {/* Patients Table */}
       <div className="bg-[#1f1f1f] light:bg-white border border-[#383838] light:border-neutral-200 rounded-xl shadow-sm overflow-hidden">

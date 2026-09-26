@@ -537,51 +537,75 @@ function initDatabaseSheetsIfMissing() {
 /**
  * حفظ أو تحديث قائمة المرضى في الشيت
  */
+function patientToRowValues(p, nowStr) {
+  return [
+    p.id || "",
+    p.name || "",
+    p.phone || "",
+    p.dob || "",
+    p.age !== undefined && p.age !== null ? p.age : "",
+    p.gender || "",
+    p.familyTag || "",
+    p.diagnosis || "",
+    p.notes || "",
+    p.allergies || "",
+    p.loyaltyPoints !== undefined && p.loyaltyPoints !== null ? p.loyaltyPoints : 0,
+    JSON.stringify(p.medications || []),
+    JSON.stringify(p.vitals || []),
+    JSON.stringify(p.scans || []),
+    p.isArchived ? "TRUE" : "FALSE",
+    p.archivedDate || "",
+    p.archiveReason || "",
+    p.lastReminderSent || "",
+    p.createdAt || nowStr,
+    nowStr
+  ];
+}
+
+/**
+ * حفظ أو تحديث قائمة المرضى في الشيت بالتحديث الدفعي فائق السرعة
+ */
 function savePatientsToSheet(patients) {
+  if (!patients || patients.length === 0) return;
   const ss = getSpreadsheet();
   const sheet = ss.getSheetByName(SHEET_PATIENTS);
   if (!sheet) return;
 
   const nowStr = new Date().toISOString();
-  const data = sheet.getDataRange().getValues();
-  const idToRowMap = {};
-  for (let r = 1; r < data.length; r++) {
-    const id = data[r][0];
-    if (id) idToRowMap[id] = r + 1;
+  const lastRow = sheet.getLastRow();
+
+  if (lastRow <= 1) {
+    const rows = patients.map(p => patientToRowValues(p, nowStr));
+    if (rows.length > 0) {
+      sheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+    }
+    return;
   }
 
+  const data = sheet.getDataRange().getValues();
+  const idToRowIndex = {};
+  for (let r = 1; r < data.length; r++) {
+    const id = String(data[r][0] || '').trim();
+    if (id) idToRowIndex[id] = r;
+  }
+
+  let modifiedExisting = false;
   const rowsToAppend = [];
 
   patients.forEach(p => {
-    const rowValues = [
-      p.id || "",
-      p.name || "",
-      p.phone || "",
-      p.dob || "",
-      p.age !== undefined ? p.age : "",
-      p.gender || "",
-      p.familyTag || "",
-      p.diagnosis || "",
-      p.notes || "",
-      p.allergies || "",
-      p.loyaltyPoints !== undefined ? p.loyaltyPoints : 0,
-      JSON.stringify(p.medications || []),
-      JSON.stringify(p.vitals || []),
-      JSON.stringify(p.scans || []),
-      p.isArchived ? "TRUE" : "FALSE",
-      p.archivedDate || "",
-      p.archiveReason || "",
-      p.lastReminderSent || "",
-      p.createdAt || nowStr,
-      nowStr
-    ];
-
-    if (p.id && idToRowMap[p.id]) {
-      sheet.getRange(idToRowMap[p.id], 1, 1, rowValues.length).setValues([rowValues]);
+    const pId = String(p.id || '').trim();
+    const rowValues = patientToRowValues(p, nowStr);
+    if (pId && idToRowIndex[pId] !== undefined) {
+      data[idToRowIndex[pId]] = rowValues;
+      modifiedExisting = true;
     } else {
       rowsToAppend.push(rowValues);
     }
   });
+
+  if (modifiedExisting) {
+    sheet.getRange(1, 1, data.length, data[0].length).setValues(data);
+  }
 
   if (rowsToAppend.length > 0) {
     sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);
@@ -624,57 +648,78 @@ function deleteFollowUpsForPatient(patientId) {
   }
 }
 
+function followUpToRowValues(f, nowStr) {
+  const adherence = f.adherenceRate !== undefined ? f.adherenceRate : (f.adherenceScore !== undefined ? f.adherenceScore : "");
+  const glucose = f.bloodGlucose !== undefined ? f.bloodGlucose : (f.glucose !== undefined ? f.glucose : "");
+
+  return [
+    f.id || "",
+    f.patientId || "",
+    f.patientName || "",
+    f.phone || "",
+    f.type || "",
+    f.drug || "",
+    f.startDate || "",
+    f.dueDate || "",
+    f.daysOffset !== undefined ? f.daysOffset : 0,
+    adherence,
+    f.systolic !== undefined ? f.systolic : "",
+    f.diastolic !== undefined ? f.diastolic : "",
+    glucose,
+    f.heartRate !== undefined ? f.heartRate : "",
+    f.milestoneTitle || "",
+    f.notes || "",
+    f.resolved ? "TRUE" : "FALSE",
+    f.resolvedAt || "",
+    f.createdAt || nowStr,
+    nowStr
+  ];
+}
+
 /**
- * حفظ أو تحديث المتابعات السريرية في الشيت
+ * حفظ أو تحديث المتابعات السريرية في الشيت بالتحديث الدفعي
  */
 function saveFollowUpsToSheet(followUps) {
+  if (!followUps || followUps.length === 0) return;
   const ss = getSpreadsheet();
   const sheet = ss.getSheetByName(SHEET_FOLLOWUPS);
   if (!sheet) return;
 
   const nowStr = new Date().toISOString();
-  const data = sheet.getDataRange().getValues();
-  const idToRowMap = {};
-  for (let r = 1; r < data.length; r++) {
-    const id = data[r][0];
-    if (id) idToRowMap[id] = r + 1;
+  const lastRow = sheet.getLastRow();
+
+  if (lastRow <= 1) {
+    const rows = followUps.map(f => followUpToRowValues(f, nowStr));
+    if (rows.length > 0) {
+      sheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+    }
+    return;
   }
 
+  const data = sheet.getDataRange().getValues();
+  const idToRowIndex = {};
+  for (let r = 1; r < data.length; r++) {
+    const id = String(data[r][0] || '').trim();
+    if (id) idToRowIndex[id] = r;
+  }
+
+  let modifiedExisting = false;
   const rowsToAppend = [];
 
   followUps.forEach(f => {
-    const adherence = f.adherenceRate !== undefined ? f.adherenceRate : (f.adherenceScore !== undefined ? f.adherenceScore : "");
-    const glucose = f.bloodGlucose !== undefined ? f.bloodGlucose : (f.glucose !== undefined ? f.glucose : "");
-
-    const rowValues = [
-      f.id || "",
-      f.patientId || "",
-      f.patientName || "",
-      f.phone || "",
-      f.type || "",
-      f.drug || "",
-      f.startDate || "",
-      f.dueDate || "",
-      f.daysOffset !== undefined ? f.daysOffset : 0,
-      adherence,
-      f.systolic !== undefined ? f.systolic : "",
-      f.diastolic !== undefined ? f.diastolic : "",
-      glucose,
-      f.heartRate !== undefined ? f.heartRate : "",
-      f.milestoneTitle || "",
-      f.notes || "",
-      f.resolved ? "TRUE" : "FALSE",
-      f.resolvedAt || "",
-      f.createdAt || nowStr,
-      nowStr
-    ];
-
-    if (f.id && idToRowMap[f.id]) {
-      sheet.getRange(idToRowMap[f.id], 1, 1, rowValues.length).setValues([rowValues]);
+    const fId = String(f.id || '').trim();
+    const rowValues = followUpToRowValues(f, nowStr);
+    if (fId && idToRowIndex[fId] !== undefined) {
+      data[idToRowIndex[fId]] = rowValues;
+      modifiedExisting = true;
     } else {
       rowsToAppend.push(rowValues);
     }
   });
+
+  if (modifiedExisting) {
+    sheet.getRange(1, 1, data.length, data[0].length).setValues(data);
+  }
 
   if (rowsToAppend.length > 0) {
     sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);

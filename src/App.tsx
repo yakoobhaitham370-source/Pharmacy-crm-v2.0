@@ -18,9 +18,17 @@ import { FollowUpModal } from './components/modals/FollowUpModal';
 
 import { Patient, FollowUpEntry, Settings, HouseholdMemberAlignment } from './types/pharmacy';
 import { INITIAL_PATIENTS, INITIAL_FOLLOW_UPS } from './data/mockPatients';
-import { calculateDaysRemaining, formatYMD } from './utils/pharmacyCalculations';
+import { calculateDaysRemaining, formatYMD, filterPatientsByQuery } from './utils/pharmacyCalculations';
+import { useDebounce } from './utils/useDebounce';
 import { evaluateClinicalSafetyRadar } from './data/drugDatabase';
-import { syncPushToGoogleSheet, fetchFromGoogleSheet, testSheetConnectionDetailed, deletePatientFromGoogleSheet } from './services/apiService';
+import {
+  syncPushToGoogleSheet,
+  fetchFromGoogleSheet,
+  testSheetConnectionDetailed,
+  deletePatientFromGoogleSheet,
+  savePatientToGoogleSheet,
+  saveFollowUpToGoogleSheet,
+} from './services/apiService';
 
 const DEFAULT_SETTINGS: Settings = {
   pharmacyName: 'صيدلية النبض السريرية',
@@ -98,6 +106,28 @@ export default function App() {
 
   const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState(false);
 
+  // Global search state with debounce
+  const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebounce(searchQuery, 250);
+  const isDebouncing = searchQuery !== debouncedSearchQuery;
+
+  // Real-time matching patients across active patients
+  const matchingPatients = useMemo(() => {
+    return filterPatientsByQuery(patients, debouncedSearchQuery);
+  }, [patients, debouncedSearchQuery]);
+
+  const handleSelectPatientFromSearch = (patientId: string) => {
+    handleOpenPatientModal(patientId);
+  };
+
+  const handleViewAllSearchResults = () => {
+    setActiveView('patients');
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery('');
+  };
+
   // Toast state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; id: number } | null>(null);
 
@@ -171,12 +201,29 @@ export default function App() {
     setSyncMessage(lang === 'ar' ? 'جارِ المزامنة...' : 'Syncing...');
 
     try {
-      // Fetch upstream using dual fetch (CORS fetch + JSONP fallback)
+      // Fetch upstream using high-speed server proxy with JSONP fallback
       const data = await fetchFromGoogleSheet(settings.gasUrl);
       if (data && Array.isArray(data.patients)) {
+        // If sheet is completely empty but local app has patients:
+        // Automatically seed the fresh sheet so data is never erased!
+        if (data.patients.length === 0 && patients.length > 0) {
+          console.log('Google Sheet is newly created: seeding data upstream...');
+          await syncPushToGoogleSheet(settings.gasUrl, patients, followUps, settings);
+          setSyncStatus('synced');
+          setSyncMessage(lang === 'ar' ? 'تم تزويد الشيت' : 'Sheet Seeded');
+          if (isManual) {
+            showToast(
+              lang === 'ar'
+                ? `تم تزويد Google Sheet الفارغ بـ (${patients.length} مريض) بنجاح!`
+                : `Seeded empty Google Sheet with (${patients.length} patients)!`,
+              'success'
+            );
+          }
+          return;
+        }
+
         // The Google Sheet is the central cloud source of truth.
         // If a patient was deleted from Google Sheets, data.patients will NOT contain them.
-        // Replacing local patients with data.patients instantly removes deleted patients!
         setPatients(prev => {
           const deletedCount = prev.filter(localP => !data.patients?.some(dp => dp.id === localP.id)).length;
           if (deletedCount > 0 && !isManual) {
@@ -186,7 +233,6 @@ export default function App() {
         });
 
         if (Array.isArray(data.followUps)) {
-          // Reconcile follow-ups to match existing patients
           const activeIds = new Set((data.patients || []).map(p => p.id));
           setFollowUps(data.followUps.filter(f => !f.patientId || activeIds.has(f.patientId)));
         }
@@ -204,7 +250,6 @@ export default function App() {
       }
     } catch (err: any) {
       console.warn('Sheet sync fetch error:', err);
-      // DO NOT push local cached data on fetch error, as that would resurrect rows deleted from the sheet!
       setSyncStatus('error');
       setSyncMessage(lang === 'ar' ? 'خطأ في الاتصال' : 'Connection Error');
       if (isManual) {
@@ -214,7 +259,7 @@ export default function App() {
         );
       }
     }
-  }, [settings.gasUrl, lang, showToast]);
+  }, [settings.gasUrl, lang, showToast, patients, followUps, settings]);
 
   // 1. Automatically sync with Google Sheet on app startup
   useEffect(() => {
@@ -223,7 +268,7 @@ export default function App() {
     }
   }, []);
 
-  // 2. Automatically sync whenever the user switches back to the tab (e.g. after deleting in Google Sheets) or on periodic poll
+  // 2. Automatically sync whenever the user switches back to the tab or on 60s periodic poll
   useEffect(() => {
     if (!settings.gasUrl) return;
 
@@ -236,12 +281,11 @@ export default function App() {
     window.addEventListener('focus', onWindowFocusOrVisible);
     document.addEventListener('visibilitychange', onWindowFocusOrVisible);
 
-    // Periodic poll every 20 seconds for seamless multi-device / sheet updates
     const pollTimer = setInterval(() => {
       if (document.visibilityState === 'visible') {
         handleSheetSync(false);
       }
-    }, 20000);
+    }, 60000);
 
     return () => {
       window.removeEventListener('focus', onWindowFocusOrVisible);
@@ -315,11 +359,28 @@ export default function App() {
       }
     });
     showToast(lang === 'ar' ? `تم حفظ ملف ${updatedPatient.name} بنجاح` : `Saved ${updatedPatient.name}`, 'success');
+
+    // Persist immediately to Google Sheet in background
+    if (settings.gasUrl) {
+      setSyncStatus('syncing');
+      setSyncMessage(lang === 'ar' ? 'جارِ الحفظ بالسحابة...' : 'Saving to Sheet...');
+      savePatientToGoogleSheet(settings.gasUrl, updatedPatient)
+        .then(res => {
+          if (res.success) {
+            setSyncStatus('synced');
+            setSyncMessage(lang === 'ar' ? 'تم الحفظ في الشيت' : 'Saved to Sheet');
+          }
+        })
+        .catch(err => {
+          console.warn('Failed to save patient to Google Sheet:', err);
+        });
+    }
   };
 
   const handleExecuteRefill = (patientId: string, medIndices: number[], daysSupply: number) => {
     const today = formatYMD(new Date());
     const refilledDrugNames: string[] = [];
+    let updatedPatientInstance: Patient | null = null;
 
     setPatients(prev => {
       return prev.map(p => {
@@ -339,11 +400,13 @@ export default function App() {
 
         const points = daysSupply >= 90 ? 30 : daysSupply >= 30 ? 10 : 0;
 
-        return {
+        const updated: Patient = {
           ...p,
           medications: updatedMeds,
           loyaltyPoints: (Number(p.loyaltyPoints) || 0) + points,
         };
+        updatedPatientInstance = updated;
+        return updated;
       });
     });
 
@@ -353,10 +416,15 @@ export default function App() {
         : `Refilled (${refilledDrugNames.join(', ')}) for ${daysSupply} days`,
       'success'
     );
+
+    if (settings.gasUrl && updatedPatientInstance) {
+      savePatientToGoogleSheet(settings.gasUrl, updatedPatientInstance).catch(console.warn);
+    }
   };
 
   const handleApplyHouseholdAlignment = (rows: HouseholdMemberAlignment[]) => {
     const today = formatYMD(new Date());
+    const modifiedMembers: Patient[] = [];
 
     setPatients(prev => {
       return prev.map(member => {
@@ -381,12 +449,18 @@ export default function App() {
           return med;
         });
 
-        return {
+        const updated: Patient = {
           ...member,
           medications: updatedMeds,
         };
+        modifiedMembers.push(updated);
+        return updated;
       });
     });
+
+    if (settings.gasUrl && modifiedMembers.length > 0) {
+      modifiedMembers.forEach(m => savePatientToGoogleSheet(settings.gasUrl, m).catch(console.warn));
+    }
   };
 
   const handleAddFollowUp = (entry: Omit<FollowUpEntry, 'id' | 'createdAt'>) => {
@@ -396,13 +470,28 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
     setFollowUps(prev => [newEntry, ...prev]);
+
+    if (settings.gasUrl) {
+      saveFollowUpToGoogleSheet(settings.gasUrl, newEntry).catch(console.warn);
+    }
   };
 
   const handleResolveFollowUp = (id: string) => {
+    let resolvedItem: FollowUpEntry | undefined;
     setFollowUps(prev =>
-      prev.map(f => (f.id === id ? { ...f, resolved: true, resolvedAt: new Date().toISOString() } : f))
+      prev.map(f => {
+        if (f.id === id) {
+          resolvedItem = { ...f, resolved: true, resolvedAt: new Date().toISOString() };
+          return resolvedItem;
+        }
+        return f;
+      })
     );
     showToast(lang === 'ar' ? 'تم توثيق اكتمال المتابعة بنجاح' : 'Follow-up marked as resolved', 'success');
+
+    if (settings.gasUrl && resolvedItem) {
+      saveFollowUpToGoogleSheet(settings.gasUrl, resolvedItem).catch(console.warn);
+    }
   };
 
   const handleDeleteFollowUp = (id: string) => {
@@ -411,19 +500,26 @@ export default function App() {
   };
 
   const handleArchivePatient = (patientId: string) => {
+    let targetPatient: Patient | undefined;
     setPatients(prev =>
-      prev.map(p =>
-        p.id === patientId
-          ? {
-              ...p,
-              isArchived: true,
-              archivedDate: formatYMD(new Date()),
-              archiveReason: lang === 'ar' ? 'نقل إلى الأرشيف' : 'Archived',
-            }
-          : p
-      )
+      prev.map(p => {
+        if (p.id === patientId) {
+          targetPatient = {
+            ...p,
+            isArchived: true,
+            archivedDate: formatYMD(new Date()),
+            archiveReason: lang === 'ar' ? 'نقل إلى الأرشيف' : 'Archived',
+          };
+          return targetPatient;
+        }
+        return p;
+      })
     );
     showToast(lang === 'ar' ? 'تمت أرشفة الملف بنجاح' : 'Patient archived', 'info');
+
+    if (settings.gasUrl && targetPatient) {
+      savePatientToGoogleSheet(settings.gasUrl, targetPatient).catch(console.warn);
+    }
   };
 
   const handleDeletePatient = (patientId: string) => {
@@ -442,10 +538,21 @@ export default function App() {
   };
 
   const handleRestorePatient = (patientId: string) => {
+    let targetPatient: Patient | undefined;
     setPatients(prev =>
-      prev.map(p => (p.id === patientId ? { ...p, isArchived: false, archivedDate: undefined } : p))
+      prev.map(p => {
+        if (p.id === patientId) {
+          targetPatient = { ...p, isArchived: false, archivedDate: undefined };
+          return targetPatient;
+        }
+        return p;
+      })
     );
     showToast(lang === 'ar' ? 'تمت استعادة الملف بنجاح' : 'Patient restored', 'success');
+
+    if (settings.gasUrl && targetPatient) {
+      savePatientToGoogleSheet(settings.gasUrl, targetPatient).catch(console.warn);
+    }
   };
 
   const handleExportBackup = () => {
@@ -556,6 +663,13 @@ export default function App() {
         onToggleTheme={() => setTheme(t => (t === 'dark' ? 'light' : 'dark'))}
         onOpenNewPatient={() => handleOpenPatientModal()}
         onOpenNewFollowUp={() => setIsFollowUpModalOpen(true)}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        onClearSearch={handleClearSearch}
+        matchingPatients={matchingPatients}
+        isDebouncing={isDebouncing}
+        onSelectPatient={handleSelectPatientFromSearch}
+        onViewAllResults={handleViewAllSearchResults}
       />
 
       {/* Navigation Pivot Bar */}
@@ -595,6 +709,10 @@ export default function App() {
             onOpenHouseholdModal={handleOpenHouseholdModal}
             onArchivePatient={handleArchivePatient}
             onShowToast={showToast}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            onClearSearch={handleClearSearch}
+            debouncedSearchQuery={debouncedSearchQuery}
           />
         )}
 

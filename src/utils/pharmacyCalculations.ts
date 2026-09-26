@@ -208,3 +208,36 @@ export function calculateInventoryDemand(patients: Patient[]): InventoryForecast
     };
   }).sort((a, b) => b.demand7Days - a.demand7Days || b.demand30Days - a.demand30Days);
 }
+
+/**
+ * Filters patient list by name, phone number (with digit normalization), ID, or family tag.
+ */
+export function filterPatientsByQuery(patients: Patient[], query: string): Patient[] {
+  const q = (query || '').trim().toLowerCase();
+  if (!q) return patients;
+
+  const digitsOnly = q.replace(/\D/g, '');
+
+  return patients.filter(patient => {
+    if (patient.isArchived) return false;
+
+    // Check patient name
+    const nameMatch = (patient.name || '').toLowerCase().includes(q);
+
+    // Check phone number (direct match or normalized digit matching)
+    const phone = patient.phone || '';
+    const phoneDigits = phone.replace(/\D/g, '');
+    const phoneMatch =
+      phone.toLowerCase().includes(q) ||
+      (digitsOnly.length >= 2 && phoneDigits.includes(digitsOnly));
+
+    // Check patient ID
+    const idMatch = (patient.id || '').toLowerCase().includes(q);
+
+    // Check family tag
+    const familyMatch = !!patient.familyTag && patient.familyTag.toLowerCase().includes(q);
+
+    return nameMatch || phoneMatch || idMatch || familyMatch;
+  });
+}
+
