@@ -335,6 +335,12 @@ app.get('/download/pharmpulse.html', (_req, res) => {
   res.download(htmlPath, 'pharmpulse.html');
 });
 
+// Endpoint: Download Google Apps Script backend code (Code.gs)
+app.get('/download/Code.gs', (_req, res) => {
+  const gsPath = path.resolve(__dirname, 'google-apps-script.js');
+  res.download(gsPath, 'Code.gs');
+});
+
 // Endpoint: Download compiled dist.zip for direct Netlify Drop deployment
 app.get('/download/dist.zip', (_req, res) => {
   const zipPath = path.resolve(__dirname, 'dist.zip');

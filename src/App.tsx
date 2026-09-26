@@ -20,7 +20,7 @@ import { Patient, FollowUpEntry, Settings, HouseholdMemberAlignment } from './ty
 import { INITIAL_PATIENTS, INITIAL_FOLLOW_UPS } from './data/mockPatients';
 import { calculateDaysRemaining, formatYMD } from './utils/pharmacyCalculations';
 import { evaluateClinicalSafetyRadar } from './data/drugDatabase';
-import { syncPushToGoogleSheet, fetchFromGoogleSheetJSONP } from './services/apiService';
+import { syncPushToGoogleSheet, fetchFromGoogleSheet, testSheetConnectionDetailed } from './services/apiService';
 
 const DEFAULT_SETTINGS: Settings = {
   pharmacyName: 'صيدلية النبض السريرية',
@@ -155,7 +155,7 @@ export default function App() {
 
   // Background Google Sheet Sync
   const handleSheetSync = useCallback(async (isManual = false) => {
-    if (!settings.gasUrl) {
+    if (!settings.gasUrl || !settings.gasUrl.trim()) {
       setSyncStatus('idle');
       setSyncMessage(lang === 'ar' ? 'الرابط غير محدد' : 'No Gas URL');
       if (isManual) {
@@ -171,14 +171,14 @@ export default function App() {
     setSyncMessage(lang === 'ar' ? 'جارِ المزامنة...' : 'Syncing...');
 
     try {
-      // Fetch upstream
-      const data = await fetchFromGoogleSheetJSONP(settings.gasUrl);
+      // Fetch upstream using dual fetch (CORS fetch + JSONP fallback)
+      const data = await fetchFromGoogleSheet(settings.gasUrl);
       if (data && data.patients) {
         if (data.patients.length === 0 && patients.length > 0) {
-          // Push initial data
-          await syncPushToGoogleSheet(settings.gasUrl, patients, followUps);
+          // Upstream is fresh/empty; push local data
+          await syncPushToGoogleSheet(settings.gasUrl, patients, followUps, settings);
           setSyncStatus('synced');
-          setSyncMessage(lang === 'ar' ? 'تم تزويد الـ Sheet' : 'Upstream Seeded');
+          setSyncMessage(lang === 'ar' ? 'تم تزويد الشيت بالبيانات' : 'Upstream Seeded');
           if (isManual) showToast(lang === 'ar' ? 'تم رفع السجلات المحلية للـ Sheet بنجاح' : 'Seeded Sheet successfully', 'success');
           return;
         }
@@ -188,22 +188,37 @@ export default function App() {
 
         setSyncStatus('synced');
         setSyncMessage(lang === 'ar' ? 'متصل ومحدث' : 'Synced');
-        if (isManual) showToast(lang === 'ar' ? `تمت المزامنة وتحديث ${data.patients.length} سجل بنجاح` : `Synced ${data.patients.length} records`, 'success');
+        if (isManual) {
+          showToast(
+            lang === 'ar' ? `تمت المزامنة بنجاح! تم تحميل ${data.patients.length} مريض و ${data.followUps ? data.followUps.length : 0} متابعة` : `Synced ${data.patients.length} records`,
+            'success'
+          );
+        }
       }
     } catch (err: any) {
-      console.warn('Sheet sync error:', err);
-      // Fallback: push local
+      console.warn('Sheet sync error, attempting push fallback:', err);
+      // Fallback: try push local
       try {
-        await syncPushToGoogleSheet(settings.gasUrl, patients, followUps);
-        setSyncStatus('synced');
-        setSyncMessage(lang === 'ar' ? 'تم الحفظ بالسحابة' : 'Saved to Cloud');
+        const pushRes = await syncPushToGoogleSheet(settings.gasUrl, patients, followUps, settings);
+        if (pushRes.success) {
+          setSyncStatus('synced');
+          setSyncMessage(lang === 'ar' ? 'تم الحفظ بالسحابة' : 'Saved to Cloud');
+          if (isManual) showToast(lang === 'ar' ? 'تم حفظ ومزامنة البيانات في Google Sheet بنجاح' : 'Saved to cloud successfully', 'success');
+        } else {
+          throw new Error('Push failed');
+        }
       } catch (e) {
         setSyncStatus('error');
-        setSyncMessage(lang === 'ar' ? 'محفوظ محلياً فقط' : 'Local Only');
-        if (isManual) showToast(lang === 'ar' ? 'فشل الاتصال برابط Google Sheet' : 'Connection failed', 'error');
+        setSyncMessage(lang === 'ar' ? 'خطأ في الاتصال' : 'Connection Error');
+        if (isManual) {
+          showToast(
+            lang === 'ar' ? 'فشل الاتصال برابط Google Sheet. تأكد من نشر السكريبت كـ Web App مع إذن Anyone' : 'Connection to Google Sheet failed. Check Web App permissions.',
+            'error'
+          );
+        }
       }
     }
-  }, [settings.gasUrl, lang, patients, followUps, showToast]);
+  }, [settings, lang, patients, followUps, showToast]);
 
   // Compute navigation badges
   const { dueRefillsCount, activeFollowUpsCount, criticalSafetyCount } = useMemo(() => {
