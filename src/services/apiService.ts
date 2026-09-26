@@ -326,6 +326,41 @@ export async function syncPushToGoogleSheet(
 }
 
 /**
+ * Permanently delete a patient and their follow-ups from Google Sheet
+ */
+export async function deletePatientFromGoogleSheet(gasUrl: string, patientId: string): Promise<boolean> {
+  if (!gasUrl || !patientId) return false;
+  const cleanUrl = gasUrl.trim();
+  const payload = JSON.stringify({
+    action: 'DELETE_PATIENT',
+    patientId,
+    timestamp: new Date().toISOString(),
+  });
+
+  try {
+    const res = await fetch(cleanUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: payload,
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('deletePatientFromGoogleSheet error, attempting beacon mode:', err);
+    try {
+      await fetch(cleanUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: payload,
+      });
+      return true;
+    } catch (e2) {
+      return false;
+    }
+  }
+}
+
+/**
  * Fetch database records from Google Sheet with Dual-Fetch (Fetch first, JSONP fallback)
  */
 export async function fetchFromGoogleSheet(

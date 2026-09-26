@@ -279,7 +279,17 @@ function doPost(e) {
       });
     }
 
-    // 2. حفظ مريض واحد فقط
+    // 2. حذف مريض نهائياً من الشيت
+    if (action === "DELETE_PATIENT") {
+      const pId = payload.patientId || (payload.patient && payload.patient.id);
+      if (!pId) return jsonResponse({ status: "ERROR", message: "Missing patientId" });
+      const delSuccess = deletePatientFromSheet(pId);
+      deleteFollowUpsForPatient(pId);
+      logAudit("DELETE_PATIENT", "Deleted patient ID: " + pId);
+      return jsonResponse({ status: "SUCCESS", message: "Patient removed from Google Sheet", deleted: delSuccess });
+    }
+
+    // 3. حفظ مريض واحد فقط
     if (action === "SAVE_PATIENT") {
       if (!payload.patient || !payload.patient.id) {
         return jsonResponse({ status: "ERROR", message: "Missing patient payload" });
@@ -511,6 +521,42 @@ function savePatientsToSheet(patients) {
 
   if (rowsToAppend.length > 0) {
     sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);
+  }
+}
+
+/**
+ * حذف مريض نهائياً من ورقة Patients_DB
+ */
+function deletePatientFromSheet(patientId) {
+  if (!patientId) return false;
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_PATIENTS);
+  if (!sheet) return false;
+
+  const data = sheet.getDataRange().getValues();
+  for (let r = data.length - 1; r >= 1; r--) {
+    if (String(data[r][0]).trim() === String(patientId).trim()) {
+      sheet.deleteRow(r + 1);
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * حذف كافة المتابعات السريرية المرتبطة بمريض محدد
+ */
+function deleteFollowUpsForPatient(patientId) {
+  if (!patientId) return;
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_FOLLOWUPS);
+  if (!sheet) return;
+
+  const data = sheet.getDataRange().getValues();
+  for (let r = data.length - 1; r >= 1; r--) {
+    if (String(data[r][1]).trim() === String(patientId).trim()) {
+      sheet.deleteRow(r + 1);
+    }
   }
 }
 

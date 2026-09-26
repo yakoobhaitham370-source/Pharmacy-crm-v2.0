@@ -20,7 +20,7 @@ import { Patient, FollowUpEntry, Settings, HouseholdMemberAlignment } from './ty
 import { INITIAL_PATIENTS, INITIAL_FOLLOW_UPS } from './data/mockPatients';
 import { calculateDaysRemaining, formatYMD } from './utils/pharmacyCalculations';
 import { evaluateClinicalSafetyRadar } from './data/drugDatabase';
-import { syncPushToGoogleSheet, fetchFromGoogleSheet, testSheetConnectionDetailed } from './services/apiService';
+import { syncPushToGoogleSheet, fetchFromGoogleSheet, testSheetConnectionDetailed, deletePatientFromGoogleSheet } from './services/apiService';
 
 const DEFAULT_SETTINGS: Settings = {
   pharmacyName: 'صيدلية النبض السريرية',
@@ -173,52 +173,82 @@ export default function App() {
     try {
       // Fetch upstream using dual fetch (CORS fetch + JSONP fallback)
       const data = await fetchFromGoogleSheet(settings.gasUrl);
-      if (data && data.patients) {
-        if (data.patients.length === 0 && patients.length > 0) {
-          // Upstream is fresh/empty; push local data
-          await syncPushToGoogleSheet(settings.gasUrl, patients, followUps, settings);
-          setSyncStatus('synced');
-          setSyncMessage(lang === 'ar' ? 'تم تزويد الشيت بالبيانات' : 'Upstream Seeded');
-          if (isManual) showToast(lang === 'ar' ? 'تم رفع السجلات المحلية للـ Sheet بنجاح' : 'Seeded Sheet successfully', 'success');
-          return;
-        }
+      if (data && Array.isArray(data.patients)) {
+        // The Google Sheet is the central cloud source of truth.
+        // If a patient was deleted from Google Sheets, data.patients will NOT contain them.
+        // Replacing local patients with data.patients instantly removes deleted patients!
+        setPatients(prev => {
+          const deletedCount = prev.filter(localP => !data.patients?.some(dp => dp.id === localP.id)).length;
+          if (deletedCount > 0 && !isManual) {
+            console.log(`Auto-synced: Removed ${deletedCount} patient(s) deleted from Google Sheet.`);
+          }
+          return data.patients || [];
+        });
 
-        setPatients(data.patients);
-        if (data.followUps) setFollowUps(data.followUps);
+        if (Array.isArray(data.followUps)) {
+          // Reconcile follow-ups to match existing patients
+          const activeIds = new Set((data.patients || []).map(p => p.id));
+          setFollowUps(data.followUps.filter(f => !f.patientId || activeIds.has(f.patientId)));
+        }
 
         setSyncStatus('synced');
         setSyncMessage(lang === 'ar' ? 'متصل ومحدث' : 'Synced');
         if (isManual) {
           showToast(
-            lang === 'ar' ? `تمت المزامنة بنجاح! تم تحميل ${data.patients.length} مريض و ${data.followUps ? data.followUps.length : 0} متابعة` : `Synced ${data.patients.length} records`,
+            lang === 'ar'
+              ? `تمت المزامنة بنجاح! السجلات متطابقة الآن مع Google Sheet (${data.patients.length} مريض)`
+              : `Synced successfully! Matches Google Sheet (${data.patients.length} patients)`,
             'success'
           );
         }
       }
     } catch (err: any) {
-      console.warn('Sheet sync error, attempting push fallback:', err);
-      // Fallback: try push local
-      try {
-        const pushRes = await syncPushToGoogleSheet(settings.gasUrl, patients, followUps, settings);
-        if (pushRes.success) {
-          setSyncStatus('synced');
-          setSyncMessage(lang === 'ar' ? 'تم الحفظ بالسحابة' : 'Saved to Cloud');
-          if (isManual) showToast(lang === 'ar' ? 'تم حفظ ومزامنة البيانات في Google Sheet بنجاح' : 'Saved to cloud successfully', 'success');
-        } else {
-          throw new Error('Push failed');
-        }
-      } catch (e) {
-        setSyncStatus('error');
-        setSyncMessage(lang === 'ar' ? 'خطأ في الاتصال' : 'Connection Error');
-        if (isManual) {
-          showToast(
-            lang === 'ar' ? 'فشل الاتصال برابط Google Sheet. تأكد من نشر السكريبت كـ Web App مع إذن Anyone' : 'Connection to Google Sheet failed. Check Web App permissions.',
-            'error'
-          );
-        }
+      console.warn('Sheet sync fetch error:', err);
+      // DO NOT push local cached data on fetch error, as that would resurrect rows deleted from the sheet!
+      setSyncStatus('error');
+      setSyncMessage(lang === 'ar' ? 'خطأ في الاتصال' : 'Connection Error');
+      if (isManual) {
+        showToast(
+          lang === 'ar' ? 'فشل الاتصال برابط Google Sheet. تأكد من نشر السكريبت كـ Web App مع إذن Anyone' : 'Connection to Google Sheet failed. Check Web App permissions.',
+          'error'
+        );
       }
     }
-  }, [settings, lang, patients, followUps, showToast]);
+  }, [settings.gasUrl, lang, showToast]);
+
+  // 1. Automatically sync with Google Sheet on app startup
+  useEffect(() => {
+    if (settings.gasUrl) {
+      handleSheetSync(false);
+    }
+  }, []);
+
+  // 2. Automatically sync whenever the user switches back to the tab (e.g. after deleting in Google Sheets) or on periodic poll
+  useEffect(() => {
+    if (!settings.gasUrl) return;
+
+    const onWindowFocusOrVisible = () => {
+      if (document.visibilityState === 'visible') {
+        handleSheetSync(false);
+      }
+    };
+
+    window.addEventListener('focus', onWindowFocusOrVisible);
+    document.addEventListener('visibilitychange', onWindowFocusOrVisible);
+
+    // Periodic poll every 20 seconds for seamless multi-device / sheet updates
+    const pollTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        handleSheetSync(false);
+      }
+    }, 20000);
+
+    return () => {
+      window.removeEventListener('focus', onWindowFocusOrVisible);
+      document.removeEventListener('visibilitychange', onWindowFocusOrVisible);
+      clearInterval(pollTimer);
+    };
+  }, [settings.gasUrl, handleSheetSync]);
 
   // Compute navigation badges
   const { dueRefillsCount, activeFollowUpsCount, criticalSafetyCount } = useMemo(() => {
@@ -402,6 +432,13 @@ export default function App() {
     setIsDossierOpen(false);
     setSelectedPatientForDossier(null);
     showToast(lang === 'ar' ? 'تم حذف ملف المريض نهائياً' : 'Patient deleted permanently', 'info');
+
+    // Also delete from Google Sheet if connected
+    if (settings.gasUrl) {
+      deletePatientFromGoogleSheet(settings.gasUrl, patientId).catch(err => {
+        console.warn('Error deleting patient from Google Sheet:', err);
+      });
+    }
   };
 
   const handleRestorePatient = (patientId: string) => {
@@ -457,6 +494,34 @@ export default function App() {
       setPatients(INITIAL_PATIENTS);
       setFollowUps(INITIAL_FOLLOW_UPS);
       showToast(lang === 'ar' ? 'تمت استعادة البيانات النموذجية الافتراضية' : 'Database reset to seed data', 'success');
+    }
+  };
+
+  const handlePushLocalToSheet = async () => {
+    if (!settings.gasUrl || !settings.gasUrl.trim()) {
+      showToast(lang === 'ar' ? 'يرجى إدخال رابط Google Apps Script في الإعدادات أولاً' : 'Configure Gas URL first', 'error');
+      return;
+    }
+    setSyncStatus('syncing');
+    setSyncMessage(lang === 'ar' ? 'جارِ رفع البيانات...' : 'Uploading...');
+    try {
+      const res = await syncPushToGoogleSheet(settings.gasUrl, patients, followUps, settings);
+      if (res.success) {
+        setSyncStatus('synced');
+        setSyncMessage(lang === 'ar' ? 'تم تزويد الشيت' : 'Uploaded');
+        showToast(
+          lang === 'ar'
+            ? `تم تزويد Google Sheet بـ ${patients.length} مريض و ${followUps.length} متابعة بنجاح!`
+            : `Uploaded ${patients.length} patients to Google Sheet!`,
+          'success'
+        );
+      } else {
+        throw new Error('Push failed');
+      }
+    } catch (e) {
+      setSyncStatus('error');
+      setSyncMessage(lang === 'ar' ? 'فشل الرفع' : 'Upload Failed');
+      showToast(lang === 'ar' ? 'فشل رفع البيانات إلى Google Sheet' : 'Upload failed', 'error');
     }
   };
 
@@ -601,6 +666,7 @@ export default function App() {
             onImportBackup={handleImportBackup}
             onResetDatabase={handleResetDatabase}
             onTestSheetConnection={() => handleSheetSync(true)}
+            onPushLocalToSheet={handlePushLocalToSheet}
           />
         )}
       </main>

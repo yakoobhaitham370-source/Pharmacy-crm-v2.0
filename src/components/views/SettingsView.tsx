@@ -33,6 +33,7 @@ interface SettingsViewProps {
   onImportBackup: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onResetDatabase: () => void;
   onTestSheetConnection: () => void;
+  onPushLocalToSheet?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -43,6 +44,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onImportBackup,
   onResetDatabase,
   onTestSheetConnection,
+  onPushLocalToSheet,
 }) => {
   const [formData, setFormData] = useState<Settings>({ ...settings });
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -341,7 +343,17 @@ function doPost(e) {
       });
     }
 
-    // 2. حفظ مريض واحد فقط
+    // 2. حذف مريض نهائياً من الشيت
+    if (action === "DELETE_PATIENT") {
+      const pId = payload.patientId || (payload.patient && payload.patient.id);
+      if (!pId) return jsonResponse({ status: "ERROR", message: "Missing patientId" });
+      const delSuccess = deletePatientFromSheet(pId);
+      deleteFollowUpsForPatient(pId);
+      logAudit("DELETE_PATIENT", "Deleted patient ID: " + pId);
+      return jsonResponse({ status: "SUCCESS", message: "Patient removed from Google Sheet", deleted: delSuccess });
+    }
+
+    // 3. حفظ مريض واحد فقط
     if (action === "SAVE_PATIENT") {
       if (!payload.patient || !payload.patient.id) {
         return jsonResponse({ status: "ERROR", message: "Missing patient payload" });
@@ -573,6 +585,42 @@ function savePatientsToSheet(patients) {
 
   if (rowsToAppend.length > 0) {
     sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);
+  }
+}
+
+/**
+ * حذف مريض نهائياً من ورقة Patients_DB
+ */
+function deletePatientFromSheet(patientId) {
+  if (!patientId) return false;
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_PATIENTS);
+  if (!sheet) return false;
+
+  const data = sheet.getDataRange().getValues();
+  for (let r = data.length - 1; r >= 1; r--) {
+    if (String(data[r][0]).trim() === String(patientId).trim()) {
+      sheet.deleteRow(r + 1);
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * حذف كافة المتابعات السريرية المرتبطة بمريض محدد
+ */
+function deleteFollowUpsForPatient(patientId) {
+  if (!patientId) return;
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_FOLLOWUPS);
+  if (!sheet) return;
+
+  const data = sheet.getDataRange().getValues();
+  for (let r = data.length - 1; r >= 1; r--) {
+    if (String(data[r][1]).trim() === String(patientId).trim()) {
+      sheet.deleteRow(r + 1);
+    }
   }
 }
 
@@ -1013,6 +1061,18 @@ function renderStatusHtmlPage(ss) {
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isDiagnosing ? 'animate-spin' : ''}`} />
                     <span>{isDiagnosing ? (lang === 'ar' ? 'جارِ الفحص...' : 'Testing...') : (lang === 'ar' ? 'فحص واختبار الاتصال' : 'Test Sync')}</span>
+                  </button>
+                )}
+
+                {formData.gasUrl && onPushLocalToSheet && (
+                  <button
+                    type="button"
+                    onClick={onPushLocalToSheet}
+                    className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/40 border border-emerald-800/40 hover:bg-emerald-900/60 transition-colors cursor-pointer"
+                    title={lang === 'ar' ? 'رفع وتصدير السجلات المحلية لتزويد الشيت' : 'Push local records to Google Sheet'}
+                  >
+                    <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{lang === 'ar' ? 'تزويد الشيت محلياً' : 'Push Local Data'}</span>
                   </button>
                 )}
               </div>
