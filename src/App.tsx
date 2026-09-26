@@ -396,6 +396,14 @@ export default function App() {
     showToast(lang === 'ar' ? 'تمت أرشفة الملف بنجاح' : 'Patient archived', 'info');
   };
 
+  const handleDeletePatient = (patientId: string) => {
+    setPatients(prev => prev.filter(p => p.id !== patientId));
+    setFollowUps(prev => prev.filter(f => f.patientId !== patientId));
+    setIsDossierOpen(false);
+    setSelectedPatientForDossier(null);
+    showToast(lang === 'ar' ? 'تم حذف ملف المريض نهائياً' : 'Patient deleted permanently', 'info');
+  };
+
   const handleRestorePatient = (patientId: string) => {
     setPatients(prev =>
       prev.map(p => (p.id === patientId ? { ...p, isArchived: false, archivedDate: undefined } : p))
@@ -609,6 +617,7 @@ export default function App() {
         gasUrl={settings.gasUrl}
         lang={lang}
         onSavePatient={handleSavePatient}
+        onDeletePatient={handleDeletePatient}
         onOpenHouseholdModal={handleOpenHouseholdModal}
         onOpenNewFollowUp={() => setIsFollowUpModalOpen(true)}
         onShowToast={showToast}

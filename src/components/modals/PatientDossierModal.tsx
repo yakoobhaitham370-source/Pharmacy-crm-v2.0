@@ -45,6 +45,7 @@ interface PatientDossierModalProps {
   gasUrl: string;
   lang: 'ar' | 'en';
   onSavePatient: (patient: Patient) => void;
+  onDeletePatient?: (patientId: string) => void;
   onOpenHouseholdModal: (familyTag: string) => void;
   onOpenNewFollowUp?: () => void;
   onShowToast: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -60,11 +61,13 @@ export const PatientDossierModal: React.FC<PatientDossierModalProps> = ({
   gasUrl,
   lang,
   onSavePatient,
+  onDeletePatient,
   onOpenHouseholdModal,
   onOpenNewFollowUp,
   onShowToast,
 }) => {
   const [activeTab, setActiveTab] = useState<string>(initialTab);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState<Patient>({
@@ -999,28 +1002,119 @@ export const PatientDossierModal: React.FC<PatientDossierModalProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Danger Zone: Permanent Patient Deletion */}
+              {patient?.id && (
+                <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-800/40 space-y-3 mt-6">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2 text-rose-400 font-bold text-xs">
+                      <ShieldAlert className="w-4 h-4 text-rose-400" />
+                      <span>{lang === 'ar' ? 'منطقة العمليات الحساسة (Danger Zone)' : 'Danger Zone'}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>{lang === 'ar' ? 'حذف ملف المريض نهائياً' : 'Delete Patient Permanently'}</span>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-neutral-300 leading-relaxed">
+                    {lang === 'ar'
+                      ? 'سيؤدي حذف هذا الملف إلى إزالة كافة بيانات المريض وقائمة أدويته وسجلات الضغط والسكر والمتابعات السريرية المرتبطة به نهائياً.'
+                      : 'Deleting this patient will permanently remove their records, active regimens, vitals logs, and linked clinical follow-ups.'}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>
 
         {/* Modal Bottom Footer */}
-        <div className="p-4 bg-[#292929] light:bg-neutral-100 border-t border-[#383838] flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold transition-colors"
-          >
-            {lang === 'ar' ? 'إلغاء' : 'Cancel'}
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            className="px-5 py-2 rounded-lg bg-[#0f6cbd] hover:bg-[#115ea3] text-white text-xs font-bold shadow-md transition-colors cursor-pointer"
-          >
-            {lang === 'ar' ? '💾 حفظ الملف السريري' : 'Save Dossier'}
-          </button>
+        <div className="p-4 bg-[#292929] light:bg-neutral-100 border-t border-[#383838] flex items-center justify-between gap-3">
+          {patient?.id && activeTab === 'thermal' ? (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 text-xs font-semibold transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4 text-rose-400" />
+              <span>{lang === 'ar' ? 'حذف المريض' : 'Delete Patient'}</span>
+            </button>
+          ) : (
+            <div />
+          )}
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold transition-colors"
+            >
+              {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              className="px-5 py-2 rounded-lg bg-[#0f6cbd] hover:bg-[#115ea3] text-white text-xs font-bold shadow-md transition-colors cursor-pointer"
+            >
+              {lang === 'ar' ? '💾 حفظ الملف السريري' : 'Save Dossier'}
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Permanent Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[60] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-[#1f1f1f] border border-rose-800/60 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="p-2.5 rounded-full bg-rose-950/60 border border-rose-800/60">
+                <AlertTriangle className="w-6 h-6 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-white">
+                  {lang === 'ar' ? 'تأكيد حذف ملف المريض نهائياً' : 'Confirm Permanent Deletion'}
+                </h3>
+                <span className="text-[11px] text-neutral-400">
+                  {formData.name} ({formData.phone})
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-neutral-300 leading-relaxed bg-[#141414] p-3 rounded-lg border border-neutral-800">
+              {lang === 'ar'
+                ? 'هل أنت متأكد من رغبتك في حذف هذا الملف بشكل نهائي؟ سيتم حذف جميع بيانات المريض، والأدوية المزمنة، وسجلات الضغط والسكر، والمتابعات السريرية المرتبطة به ولا يمكن استرجاعها.'
+                : 'Are you sure you want to permanently delete this patient dossier? All personal data, chronic medications, vitals history, and clinical follow-ups will be permanently deleted.'}
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold transition-colors"
+              >
+                {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  if (onDeletePatient && patient?.id) {
+                    onDeletePatient(patient.id);
+                  }
+                  onClose();
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{lang === 'ar' ? 'نعم، حذف نهائي' : 'Yes, Delete Permanently'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
