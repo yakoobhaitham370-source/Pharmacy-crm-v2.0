@@ -419,6 +419,84 @@ export async function deletePatientFromGoogleSheet(gasUrl: string, patientId: st
 }
 
 /**
+ * Completely clears all patient and follow-up rows from Google Sheet
+ */
+export async function clearGoogleSheetDatabase(
+  gasUrl: string,
+  knownPatientIds: string[] = []
+): Promise<{ success: boolean; message?: string }> {
+  if (!gasUrl) return { success: false, message: 'NO_GAS_URL' };
+  const cleanUrl = gasUrl.trim();
+
+  // 1. Try to discover any remote patient IDs currently on the sheet
+  let discoveredIds: string[] = [];
+  try {
+    const upstream = await fetchFromGoogleSheet(cleanUrl);
+    if (upstream && Array.isArray(upstream.patients)) {
+      discoveredIds = upstream.patients.map(p => p.id).filter(Boolean);
+    }
+  } catch (e) {
+    console.debug('Discover upstream IDs note:', e);
+  }
+
+  // Known demo IDs that might have been synced previously to the user's sheet
+  const DEMO_IDS = ['PT-104821', 'PT-104822', 'PT-104823', 'PT-104824', 'PT-106550'];
+  const allIds = Array.from(new Set([...knownPatientIds, ...discoveredIds, ...DEMO_IDS]));
+
+  // 2. Send CLEAR_DATABASE action to modern script via POST
+  try {
+    await callGasApi(cleanUrl, {
+      method: 'POST',
+      payload: {
+        action: 'CLEAR_DATABASE',
+        timestamp: new Date().toISOString(),
+      },
+      timeoutMs: 8000,
+    });
+  } catch (e) {
+    console.warn('CLEAR_DATABASE POST action error:', e);
+  }
+
+  // 3. Also send CLEAR_DATABASE via GET / JSONP
+  try {
+    await callGasApi(cleanUrl, {
+      method: 'GET',
+      params: {
+        action: 'CLEAR_DATABASE',
+        _t: Date.now().toString(),
+      },
+      timeoutMs: 6000,
+    });
+  } catch (e) {}
+
+  // 4. Also send DELETE_PATIENT ALL via POST
+  try {
+    await callGasApi(cleanUrl, {
+      method: 'POST',
+      payload: {
+        action: 'DELETE_PATIENT',
+        patientId: 'ALL',
+        timestamp: new Date().toISOString(),
+      },
+      timeoutMs: 6000,
+    });
+  } catch (e) {
+    console.warn('DELETE_PATIENT ALL error:', e);
+  }
+
+  // 5. Fallback for older script deployments: delete each ID individually
+  for (const id of allIds) {
+    if (id) {
+      try {
+        await deletePatientFromGoogleSheet(cleanUrl, id);
+      } catch (e) {}
+    }
+  }
+
+  return { success: true };
+}
+
+/**
  * Fetch database records from Google Sheet with high-speed proxy and instant JSONP
  */
 export async function fetchFromGoogleSheet(

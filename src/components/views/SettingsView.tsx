@@ -20,6 +20,7 @@ import {
   Activity,
   FileCode,
   ArrowRight,
+  Trash2,
   ExternalLink as LinkIcon
 } from 'lucide-react';
 import { Settings } from '../../types/pharmacy';
@@ -246,7 +247,19 @@ function doGet(e) {
         }
       };
     }
-    // 4. استعلام عن مريض محدد بواسطة ID أو رقم الهاتف
+    // 4. تفريغ قاعدة البيانات ومسح كافة المرضى والمتابعات عبر GET
+    else if (action === "CLEAR_DATABASE" || action === "RESET_DATABASE") {
+      initDatabaseSheetsIfMissing();
+      clearSheetDataRows(SHEET_PATIENTS);
+      clearSheetDataRows(SHEET_FOLLOWUPS);
+      logAudit("CLEAR_DATABASE", "All patients and clinical follow-ups cleared via GET request.");
+      result = {
+        status: "SUCCESS",
+        message: "Google Sheet database emptied successfully",
+        timestamp: new Date().toISOString()
+      };
+    }
+    // 5. استعلام عن مريض محدد بواسطة ID أو رقم الهاتف
     else if (action === "GET_PATIENT") {
       const qId = e.parameter.id;
       const qPhone = e.parameter.phone;
@@ -343,9 +356,27 @@ function doPost(e) {
       });
     }
 
+    // تفريغ قاعدة البيانات ومسح كافة المرضى والمتابعات
+    if (action === "CLEAR_DATABASE" || action === "RESET_DATABASE") {
+      clearSheetDataRows(SHEET_PATIENTS);
+      clearSheetDataRows(SHEET_FOLLOWUPS);
+      logAudit("CLEAR_DATABASE", "All patients and clinical follow-ups cleared from Google Sheet.");
+      return jsonResponse({
+        status: "SUCCESS",
+        message: "Google Sheet database emptied successfully",
+        timestamp: new Date().toISOString()
+      });
+    }
+
     // 2. حذف مريض نهائياً من الشيت
     if (action === "DELETE_PATIENT") {
       const pId = payload.patientId || (payload.patient && payload.patient.id);
+      if (pId === "ALL" || pId === "*") {
+        clearSheetDataRows(SHEET_PATIENTS);
+        clearSheetDataRows(SHEET_FOLLOWUPS);
+        logAudit("RESET_DATABASE", "All patients deleted from sheet");
+        return jsonResponse({ status: "SUCCESS", message: "All patients removed from Google Sheet" });
+      }
       if (!pId) return jsonResponse({ status: "ERROR", message: "Missing patientId" });
       const delSuccess = deletePatientFromSheet(pId);
       deleteFollowUpsForPatient(pId);
@@ -609,6 +640,44 @@ function savePatientsToSheet(patients) {
 
   if (rowsToAppend.length > 0) {
     sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);
+  }
+}
+
+/**
+ * مسح كافة الصفوف البيانية في ورقة محددة مع الإبقاء التام على رأس الجدول والتنسيقات
+ */
+function clearSheetDataRows(sheetName) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) return;
+    const lastRow = sheet.getLastRow();
+    const lastCol = Math.max(sheet.getLastColumn(), 1);
+    if (lastRow > 1) {
+      try {
+        sheet.getRange(2, 1, lastRow - 1, lastCol).clearContent();
+      } catch (errClear) {
+        Logger.log("clearContent note: " + errClear.toString());
+      }
+      try {
+        sheet.deleteRows(2, lastRow - 1);
+      } catch (errDel) {
+        Logger.log("deleteRows note: " + errDel.toString());
+      }
+    }
+  } catch (e) {
+    Logger.log("Error clearing sheet " + sheetName + ": " + e.toString());
+  }
+}
+
+function menuClearDatabase() {
+  const ui = SpreadsheetApp.getUi();
+  const resp = ui.alert("تحذير تفريغ البيانات", "هل أنت متأكد من مسح وتفريغ كافة سجلات المرضى والمتابعات من الشيت نهائياً؟", ui.ButtonSet.YES_NO);
+  if (resp === ui.Button.YES) {
+    clearSheetDataRows(SHEET_PATIENTS);
+    clearSheetDataRows(SHEET_FOLLOWUPS);
+    logAudit("MANUAL_CLEAR", "User manually cleared database from Google Sheet menu.");
+    ui.alert("✅ تم بنجاح!", "تم تفريغ كافة سجلات المرضى والمتابعات السريرية من الشيت بنجاح وبقيت رؤوس الجداول جاهزة.", ui.ButtonSet.OK);
   }
 }
 
@@ -1120,6 +1189,18 @@ function renderStatusHtmlPage(ss) {
                     <span>{lang === 'ar' ? 'تزويد الشيت محلياً' : 'Push Local Data'}</span>
                   </button>
                 )}
+
+                {formData.gasUrl && (
+                  <button
+                    type="button"
+                    onClick={onResetDatabase}
+                    className="text-[11px] font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-950/40 border border-rose-800/40 hover:bg-rose-900/60 transition-colors cursor-pointer"
+                    title={lang === 'ar' ? 'تفريغ قاعدة البيانات ومسح شيت Google Sheet' : 'Reset Database & Google Sheet'}
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span>{lang === 'ar' ? 'تفريغ الشيت والموقع' : 'Reset DB & Sheet'}</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1276,10 +1357,10 @@ function renderStatusHtmlPage(ss) {
             <button
               type="button"
               onClick={onResetDatabase}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40 text-xs font-semibold transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40 text-xs font-semibold transition-colors cursor-pointer"
             >
-              <AlertTriangle className="w-3.5 h-3.5" />
-              <span>{lang === 'ar' ? 'إعادة ضبط البيانات الافتراضية' : 'Reset Seed Data'}</span>
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{lang === 'ar' ? 'تفريغ ومسح كافة البيانات' : 'Reset & Empty Database'}</span>
             </button>
           </div>
         </div>

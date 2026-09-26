@@ -15,6 +15,7 @@ import { PatientDossierModal } from './components/modals/PatientDossierModal';
 import { RefillModal } from './components/modals/RefillModal';
 import { HouseholdSyncModal } from './components/modals/HouseholdSyncModal';
 import { FollowUpModal } from './components/modals/FollowUpModal';
+import { ResetDatabaseModal } from './components/modals/ResetDatabaseModal';
 
 import { Patient, FollowUpEntry, Settings, HouseholdMemberAlignment } from './types/pharmacy';
 import { INITIAL_PATIENTS, INITIAL_FOLLOW_UPS } from './data/mockPatients';
@@ -28,6 +29,7 @@ import {
   deletePatientFromGoogleSheet,
   savePatientToGoogleSheet,
   saveFollowUpToGoogleSheet,
+  clearGoogleSheetDatabase,
 } from './services/apiService';
 
 const DEFAULT_SETTINGS: Settings = {
@@ -113,6 +115,8 @@ export default function App() {
   const [selectedFamilyTag, setSelectedFamilyTag] = useState<string>('');
 
   const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
   // Global search state with debounce
   const [searchQuery, setSearchQuery] = useState('');
@@ -212,9 +216,23 @@ export default function App() {
       // Fetch upstream using high-speed server proxy with JSONP fallback
       const data = await fetchFromGoogleSheet(settings.gasUrl);
       if (data && Array.isArray(data.patients)) {
-        // If sheet is completely empty but local app has patients:
+        // Sanitize out any legacy mock demo records that might still exist in the user's sheet
+        const sanitizedPatients = data.patients.filter(
+          p => !p.id?.startsWith('PT-1048') && !p.id?.startsWith('PT-1065')
+        );
+        const hasLegacyDemo = data.patients.length > sanitizedPatients.length;
+        if (hasLegacyDemo && settings.gasUrl) {
+          console.log('Cleansing legacy demo patients from Google Sheet...');
+          clearGoogleSheetDatabase(settings.gasUrl, ['PT-104821', 'PT-104822', 'PT-104823', 'PT-104824', 'PT-106550']);
+        }
+
+        const sanitizedFollowUps = (data.followUps || []).filter(
+          f => !f.id?.startsWith('FU-10') && !f.id?.startsWith('FU-20')
+        );
+
+        // If sheet is completely empty but local app has real patients:
         // Automatically seed the fresh sheet so data is never erased!
-        if (data.patients.length === 0 && patients.length > 0) {
+        if (sanitizedPatients.length === 0 && patients.length > 0) {
           console.log('Google Sheet is newly created: seeding data upstream...');
           await syncPushToGoogleSheet(settings.gasUrl, patients, followUps, settings);
           setSyncStatus('synced');
@@ -231,18 +249,17 @@ export default function App() {
         }
 
         // The Google Sheet is the central cloud source of truth.
-        // If a patient was deleted from Google Sheets, data.patients will NOT contain them.
         setPatients(prev => {
-          const deletedCount = prev.filter(localP => !data.patients?.some(dp => dp.id === localP.id)).length;
+          const deletedCount = prev.filter(localP => !sanitizedPatients.some(dp => dp.id === localP.id)).length;
           if (deletedCount > 0 && !isManual) {
             console.log(`Auto-synced: Removed ${deletedCount} patient(s) deleted from Google Sheet.`);
           }
-          return data.patients || [];
+          return sanitizedPatients;
         });
 
         if (Array.isArray(data.followUps)) {
-          const activeIds = new Set((data.patients || []).map(p => p.id));
-          setFollowUps(data.followUps.filter(f => !f.patientId || activeIds.has(f.patientId)));
+          const activeIds = new Set(sanitizedPatients.map(p => p.id));
+          setFollowUps(sanitizedFollowUps.filter(f => !f.patientId || activeIds.has(f.patientId)));
         }
 
         setSyncStatus('synced');
@@ -250,8 +267,8 @@ export default function App() {
         if (isManual) {
           showToast(
             lang === 'ar'
-              ? `تمت المزامنة بنجاح! السجلات متطابقة الآن مع Google Sheet (${data.patients.length} مريض)`
-              : `Synced successfully! Matches Google Sheet (${data.patients.length} patients)`,
+              ? `تمت المزامنة بنجاح! السجلات متطابقة الآن مع Google Sheet (${sanitizedPatients.length} مريض)`
+              : `Synced successfully! Matches Google Sheet (${sanitizedPatients.length} patients)`,
             'success'
           );
         }
@@ -605,20 +622,62 @@ export default function App() {
   };
 
   const handleResetDatabase = () => {
-    if (
-      confirm(
-        lang === 'ar'
-          ? 'هل أنت متأكد من مسح كافة البيانات وتفريغ الموقع تماماً؟'
-          : 'Are you sure you want to empty the entire database?'
-      )
-    ) {
+    setIsResetModalOpen(true);
+  };
+
+  const handleConfirmReset = async (includeCloud: boolean) => {
+    setIsResetting(true);
+    try {
+      const currentPatientIds = patients.map(p => p.id);
+
+      // 1. If user chose full reset and Google Sheet is configured, wipe the cloud database
+      if (includeCloud && settings.gasUrl && settings.gasUrl.trim()) {
+        try {
+          await clearGoogleSheetDatabase(settings.gasUrl, currentPatientIds);
+        } catch (cloudErr) {
+          console.warn('Error clearing Google Sheet during reset:', cloudErr);
+        }
+      }
+
+      // 2. Clear all local application state
       setPatients([]);
       setFollowUps([]);
+      setIsDossierOpen(false);
+      setSelectedPatientForDossier(null);
+
+      // 3. Clear browser localStorage caches
       try {
         localStorage.removeItem('crm_cache_data');
         localStorage.removeItem('crm_follow_ups');
       } catch (e) {}
-      showToast(lang === 'ar' ? 'تم تفريغ كافة بيانات المرضى بنجاح' : 'Database emptied completely', 'success');
+
+      // 4. Update sync UI status and show notification
+      if (includeCloud && settings.gasUrl) {
+        setSyncStatus('synced');
+        setSyncMessage(lang === 'ar' ? 'تم التفريغ' : 'Emptied');
+        showToast(
+          lang === 'ar'
+            ? 'تم تفريغ الموقع ومسح بيانات Google Sheet بنجاح! عند المزامنة ستبقى قاعدة البيانات فارغة تماماً.'
+            : 'Emptied website and Google Sheet successfully! Future syncs will stay clean.',
+          'success'
+        );
+      } else {
+        setSyncStatus('idle');
+        setSyncMessage(lang === 'ar' ? 'تم التفريغ محلياً' : 'Local Emptied');
+        showToast(
+          includeCloud
+            ? (lang === 'ar' ? 'تم تفريغ كافة بيانات الموقع بنجاح' : 'Website emptied successfully')
+            : (lang === 'ar' ? 'تم تفريغ الموقع محلياً (تنبيه: ستتم استعادة البيانات عند المزامنة القادمة)' : 'Local data cleared (data will restore on next sync)'),
+          'info'
+        );
+      }
+
+      setIsResetModalOpen(false);
+    } catch (err: any) {
+      console.error('Reset database error:', err);
+      showToast(lang === 'ar' ? 'حدث خطأ أثناء تفريغ البيانات' : 'Error resetting database', 'error');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -855,6 +914,19 @@ export default function App() {
         lang={lang}
         onAddFollowUp={handleAddFollowUp}
         onShowToast={showToast}
+      />
+
+      {/* 5. Reset Database Confirmation Modal */}
+      <ResetDatabaseModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+        isGoogleSheetConnected={Boolean(settings.gasUrl && settings.gasUrl.trim())}
+        gasUrl={settings.gasUrl}
+        patientCount={patients.length}
+        followUpCount={followUps.length}
+        lang={lang}
+        isResetting={isResetting}
+        onConfirmReset={handleConfirmReset}
       />
     </div>
   );

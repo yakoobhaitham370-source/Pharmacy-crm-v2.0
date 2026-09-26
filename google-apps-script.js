@@ -57,6 +57,8 @@ function onOpen() {
       .addItem("📊 إحصائيات قاعدة البيانات (Data Summary)", "menuShowSummary")
       .addItem("🎨 إعادة تنسيق وتلوين الجداول (Format Tables)", "menuFormatTables")
       .addSeparator()
+      .addItem("🗑️ مسح وتفريغ كافة البيانات (Clear All Data)", "menuClearDatabase")
+      .addSeparator()
       .addItem("📖 تعليمات الربط السحابي (Deployment Help)", "menuShowInstructions")
       .addToUi();
   } catch (e) {
@@ -182,7 +184,19 @@ function doGet(e) {
         }
       };
     }
-    // 4. استعلام عن مريض محدد بواسطة ID أو رقم الهاتف
+    // 4. تفريغ قاعدة البيانات ومسح كافة المرضى والمتابعات عبر GET
+    else if (action === "CLEAR_DATABASE" || action === "RESET_DATABASE") {
+      initDatabaseSheetsIfMissing();
+      clearSheetDataRows(SHEET_PATIENTS);
+      clearSheetDataRows(SHEET_FOLLOWUPS);
+      logAudit("CLEAR_DATABASE", "All patients and clinical follow-ups cleared via GET request.");
+      result = {
+        status: "SUCCESS",
+        message: "Google Sheet database emptied successfully",
+        timestamp: new Date().toISOString()
+      };
+    }
+    // 5. استعلام عن مريض محدد بواسطة ID أو رقم الهاتف
     else if (action === "GET_PATIENT") {
       const qId = e.parameter.id;
       const qPhone = e.parameter.phone;
@@ -279,9 +293,27 @@ function doPost(e) {
       });
     }
 
+    // تفريغ قاعدة البيانات ومسح كافة المرضى والمتابعات
+    if (action === "CLEAR_DATABASE" || action === "RESET_DATABASE") {
+      clearSheetDataRows(SHEET_PATIENTS);
+      clearSheetDataRows(SHEET_FOLLOWUPS);
+      logAudit("CLEAR_DATABASE", "All patients and clinical follow-ups cleared from Google Sheet.");
+      return jsonResponse({
+        status: "SUCCESS",
+        message: "Google Sheet database emptied successfully",
+        timestamp: new Date().toISOString()
+      });
+    }
+
     // 2. حذف مريض نهائياً من الشيت
     if (action === "DELETE_PATIENT") {
       const pId = payload.patientId || (payload.patient && payload.patient.id);
+      if (pId === "ALL" || pId === "*") {
+        clearSheetDataRows(SHEET_PATIENTS);
+        clearSheetDataRows(SHEET_FOLLOWUPS);
+        logAudit("RESET_DATABASE", "All patients deleted from sheet");
+        return jsonResponse({ status: "SUCCESS", message: "All patients removed from Google Sheet" });
+      }
       if (!pId) return jsonResponse({ status: "ERROR", message: "Missing patientId" });
       const delSuccess = deletePatientFromSheet(pId);
       deleteFollowUpsForPatient(pId);
@@ -546,6 +578,44 @@ function savePatientsToSheet(patients) {
   // إضافة الصفوف الجديدة دفعة واحدة
   if (rowsToAppend.length > 0) {
     sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length).setValues(rowsToAppend);
+  }
+}
+
+/**
+ * مسح كافة الصفوف البيانية في ورقة محددة مع الإبقاء التام على رأس الجدول والتنسيقات
+ */
+function clearSheetDataRows(sheetName) {
+  try {
+    const ss = getSpreadsheet();
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) return;
+    const lastRow = sheet.getLastRow();
+    const lastCol = Math.max(sheet.getLastColumn(), 1);
+    if (lastRow > 1) {
+      try {
+        sheet.getRange(2, 1, lastRow - 1, lastCol).clearContent();
+      } catch (errClear) {
+        Logger.log("clearContent note: " + errClear.toString());
+      }
+      try {
+        sheet.deleteRows(2, lastRow - 1);
+      } catch (errDel) {
+        Logger.log("deleteRows note: " + errDel.toString());
+      }
+    }
+  } catch (e) {
+    Logger.log("Error clearing sheet " + sheetName + ": " + e.toString());
+  }
+}
+
+function menuClearDatabase() {
+  const ui = SpreadsheetApp.getUi();
+  const resp = ui.alert("تحذير تفريغ البيانات", "هل أنت متأكد من مسح وتفريغ كافة سجلات المرضى والمتابعات من الشيت نهائياً؟", ui.ButtonSet.YES_NO);
+  if (resp === ui.Button.YES) {
+    clearSheetDataRows(SHEET_PATIENTS);
+    clearSheetDataRows(SHEET_FOLLOWUPS);
+    logAudit("MANUAL_CLEAR", "User manually cleared database from Google Sheet menu.");
+    ui.alert("✅ تم بنجاح!", "تم تفريغ كافة سجلات المرضى والمتابعات السريرية من الشيت بنجاح وبقيت رؤوس الجداول جاهزة.", ui.ButtonSet.OK);
   }
 }
 
