@@ -374,7 +374,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-[#2e2e2e] light:divide-neutral-200 text-neutral-200 light:text-neutral-800">
-              {dispatchRows.length === 0 ? (
+              {activePatients.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="text-center py-12 text-neutral-400">
+                    <div className="max-w-md mx-auto space-y-2">
+                      <div className="font-bold text-sm text-neutral-300 light:text-neutral-700">
+                        {lang === 'ar' ? 'غرفة الإرسال فارغة حالياً' : 'Dispatch Hub is Empty'}
+                      </div>
+                      <p className="text-xs text-neutral-500 max-w-sm mx-auto">
+                        {lang === 'ar'
+                          ? 'لا توجد بيانات مرضى مسجلة حالياً بعد حذف الأمثلة التجريبية. قم بتسجيل المرضى لتفعيل جدول استحقاق الوصفات والمتابعة التلقائية.'
+                          : 'No patient records currently registered. Register patients to activate refill schedules.'}
+                      </p>
+                      <button
+                        onClick={() => onOpenPatientModal()}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#0f6cbd] hover:bg-[#115ea3] text-white transition-all mt-2 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>{lang === 'ar' ? 'تسجيل مريض جديد' : 'New Patient'}</span>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : dispatchRows.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="text-center py-10 text-neutral-400">
                     {lang === 'ar'

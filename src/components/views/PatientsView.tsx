@@ -258,7 +258,32 @@ export const PatientsView: React.FC<PatientsViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-[#2e2e2e] light:divide-neutral-200 text-neutral-200 light:text-neutral-800">
-              {filteredPatients.length === 0 ? (
+              {activePatients.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="text-center py-14 text-neutral-400">
+                    <div className="max-w-md mx-auto space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-blue-950/60 light:bg-blue-100 text-blue-400 light:text-blue-700 border border-blue-800/40 flex items-center justify-center mx-auto shadow-inner">
+                        <Users className="w-6 h-6" />
+                      </div>
+                      <div className="font-bold text-sm text-white light:text-neutral-900">
+                        {lang === 'ar' ? 'دليل المرضى فارغ حالياً' : 'Patient Directory is Empty'}
+                      </div>
+                      <p className="text-xs text-neutral-400 light:text-neutral-500 max-w-sm mx-auto leading-relaxed">
+                        {lang === 'ar'
+                          ? 'تم حذف البيانات النموذجية التجريبية بنجاح. يمكنك الآن البدء بتسجيل أول مريض حقيقي في الصيدلية.'
+                          : 'Sample demo records have been removed. You can now register your first patient.'}
+                      </p>
+                      <button
+                        onClick={() => onOpenPatientModal()}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-[#0f6cbd] hover:bg-[#115ea3] text-white transition-all shadow-md cursor-pointer mt-1"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>{lang === 'ar' ? 'تسجيل مريض جديد الآن' : 'Add First Patient Now'}</span>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredPatients.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="text-center py-10 text-neutral-400">
                     {lang === 'ar' ? 'لا يوجد مرضى مطابقين لشروط البحث.' : 'No matching patients found.'}

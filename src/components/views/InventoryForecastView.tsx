@@ -111,7 +111,21 @@ export const InventoryForecastView: React.FC<InventoryForecastViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-[#2e2e2e] light:divide-neutral-200 text-neutral-200 light:text-neutral-800">
-              {forecastItems.map((item, idx) => (
+              {forecastItems.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center py-12 text-neutral-400">
+                    <div className="space-y-1">
+                      <div className="font-semibold text-neutral-300 light:text-neutral-700">
+                        {lang === 'ar' ? 'لا توجد أدوية أو مرضى لحساب توقعات المخزون حالياً' : 'No Active Medications to Forecast'}
+                      </div>
+                      <div className="text-xs text-neutral-500">
+                        {lang === 'ar' ? 'أضف مرضى بأدويتهم المزمنة لتوقع كميات الطلبيات ومواعيد إعادة التوريد.' : 'Register patients with chronic regimens to generate demand forecasts.'}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                forecastItems.map((item, idx) => (
                 <tr key={idx} className="hover:bg-neutral-800/40 light:hover:bg-neutral-50 transition-colors">
                   <td className="py-3.5 px-4 font-bold text-white light:text-neutral-900">
                     {item.drugName}
@@ -155,7 +169,7 @@ export const InventoryForecastView: React.FC<InventoryForecastViewProps> = ({
                     )}
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>

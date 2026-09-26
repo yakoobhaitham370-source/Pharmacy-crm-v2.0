@@ -112,16 +112,21 @@ export const SafetyRadarView: React.FC<SafetyRadarViewProps> = ({
               setSelectedPatientId(e.target.value);
               setAiAuditResult(null);
             }}
-            className="w-full bg-[#141414] light:bg-neutral-50 border border-[#383838] light:border-neutral-300 text-white light:text-neutral-900 text-xs rounded-lg p-2.5 outline-none focus:border-blue-500"
+            disabled={patients.filter(p => !p.isArchived).length === 0}
+            className="w-full bg-[#141414] light:bg-neutral-50 border border-[#383838] light:border-neutral-300 text-white light:text-neutral-900 text-xs rounded-lg p-2.5 outline-none focus:border-blue-500 disabled:opacity-50"
           >
-            {patients.filter(p => !p.isArchived).map(p => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({(p.medications || []).length} أدوية)
-              </option>
-            ))}
+            {patients.filter(p => !p.isArchived).length === 0 ? (
+              <option value="">{lang === 'ar' ? 'لا يوجد مرضى مسجلون حالياً' : 'No patients registered'}</option>
+            ) : (
+              patients.filter(p => !p.isArchived).map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({(p.medications || []).length} أدوية)
+                </option>
+              ))
+            )}
           </select>
 
-          {selectedPatient && (
+          {selectedPatient ? (
             <div className="bg-[#141414] light:bg-neutral-50 p-3.5 rounded-lg border border-[#2e2e2e] light:border-neutral-200 space-y-2 text-xs">
               <div>
                 <span className="text-neutral-400">{lang === 'ar' ? 'الأدوية النشطة:' : 'Regimen:'}</span>
@@ -145,6 +150,12 @@ export const SafetyRadarView: React.FC<SafetyRadarViewProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+          ) : (
+            <div className="bg-[#141414] light:bg-neutral-50 p-3.5 rounded-lg border border-[#2e2e2e] light:border-neutral-200 text-xs text-neutral-400">
+              {lang === 'ar'
+                ? 'لا يوجد مريض محدد حالياً. يمكنك استخدام محاكي التركيبات الدوائية بالأسفل لفحص أي أدوية مباشرة.'
+                : 'No patient selected. You can use the custom regimen simulator below to test drug combinations.'}
             </div>
           )}
 

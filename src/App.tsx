@@ -51,13 +51,17 @@ export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [currentTime, setCurrentTime] = useState<string>('00:00:00');
 
-  // Core state
+  // Core state (Default empty, demo examples removed)
   const [patients, setPatients] = useState<Patient[]>(() => {
     try {
       const saved = localStorage.getItem('crm_cache_data');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) {
+          // Cleanse any legacy demo/example patients
+          const realPatients = parsed.filter(p => !p.id?.startsWith('PT-1048') && !p.id?.startsWith('PT-1065'));
+          return realPatients;
+        }
       }
     } catch (e) {
       console.warn('Failed to load cached patients:', e);
@@ -70,7 +74,11 @@ export default function App() {
       const saved = localStorage.getItem('crm_follow_ups');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) {
+          // Cleanse any legacy demo/example follow-ups
+          const realFollowUps = parsed.filter(f => !f.id?.startsWith('FU-10') && !f.id?.startsWith('FU-20'));
+          return realFollowUps;
+        }
       }
     } catch (e) {
       console.warn('Failed to load cached follow-ups:', e);
@@ -597,10 +605,20 @@ export default function App() {
   };
 
   const handleResetDatabase = () => {
-    if (confirm(lang === 'ar' ? 'هل أنت متأكد من إعادة ضبط البيانات إلى النماذج الافتراضية؟' : 'Reset to default seed data?')) {
-      setPatients(INITIAL_PATIENTS);
-      setFollowUps(INITIAL_FOLLOW_UPS);
-      showToast(lang === 'ar' ? 'تمت استعادة البيانات النموذجية الافتراضية' : 'Database reset to seed data', 'success');
+    if (
+      confirm(
+        lang === 'ar'
+          ? 'هل أنت متأكد من مسح كافة البيانات وتفريغ الموقع تماماً؟'
+          : 'Are you sure you want to empty the entire database?'
+      )
+    ) {
+      setPatients([]);
+      setFollowUps([]);
+      try {
+        localStorage.removeItem('crm_cache_data');
+        localStorage.removeItem('crm_follow_ups');
+      } catch (e) {}
+      showToast(lang === 'ar' ? 'تم تفريغ كافة بيانات المرضى بنجاح' : 'Database emptied completely', 'success');
     }
   };
 

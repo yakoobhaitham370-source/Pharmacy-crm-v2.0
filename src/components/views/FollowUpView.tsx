@@ -140,7 +140,32 @@ export const FollowUpView: React.FC<FollowUpViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-[#2e2e2e] light:divide-neutral-200 text-neutral-200 light:text-neutral-800">
-              {filtered.length === 0 ? (
+              {followUps.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center py-14 text-neutral-400">
+                    <div className="max-w-sm mx-auto space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-blue-950/60 light:bg-blue-100 text-blue-400 light:text-blue-700 border border-blue-800/40 flex items-center justify-center mx-auto shadow-inner">
+                        <Stethoscope className="w-6 h-6" />
+                      </div>
+                      <div className="font-bold text-sm text-white light:text-neutral-900">
+                        {lang === 'ar' ? 'سجل المتابعات السريرية فارغ' : 'No Follow-Ups Yet'}
+                      </div>
+                      <p className="text-xs text-neutral-400 light:text-neutral-500 leading-relaxed">
+                        {lang === 'ar'
+                          ? 'تم حذف البيانات النموذجية. يمكنك جدولة مواعيد متابعة للمضادات الحيوية (اليوم 3/7) أو مراقبة استقرار الأدوية المزمنة.'
+                          : 'Sample follow-ups removed. Schedule antibiotic stewardship checks or chronic titration follow-ups.'}
+                      </p>
+                      <button
+                        onClick={onOpenFollowUpModal}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold bg-[#0f6cbd] hover:bg-[#115ea3] text-white transition-all shadow-md cursor-pointer mt-1"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>{lang === 'ar' ? 'تسجيل متابعة سريرية جديدة' : 'Add First Follow-Up'}</span>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="text-center py-12 text-neutral-400">
                     {lang === 'ar' ? 'لا توجد حالات متابعة مسجلة مطابقة للفلتر.' : 'No clinical follow-ups found.'}
